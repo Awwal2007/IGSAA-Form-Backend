@@ -72,12 +72,12 @@ const candidateSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Phone number is required'],
     trim: true,
-    validate: {
-      validator: function(v) {
-        return /^[\+]?[1-9][\d]{0,15}$/.test(v);
-      },
-      message: 'Invalid phone number format'
-    }
+    // validate: {
+    //   validator: function(v) {
+    //     return /^[\+]?[1-9][\d]{0,15}$/.test(v);
+    //   },
+    //   message: 'Invalid phone number format'
+    // }
   },
   email: {
     type: String,
