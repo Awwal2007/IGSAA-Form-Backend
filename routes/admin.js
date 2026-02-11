@@ -1,8 +1,31 @@
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 const Candidate = require('../models/Candidate');
 const User = require('../models/User');
 const { authMiddleware, roleMiddleware, permissionMiddleware } = require('../middleware/auth');
+
+// GridFS setup
+let gfs;
+let gridfsBucket;
+
+const conn = mongoose.connection;
+
+conn.once('open', () => {
+  console.log('GridFSBucket initialized for admin routes');
+  gridfsBucket = new mongoose.mongo.GridFSBucket(conn.db, {
+    bucketName: 'uploads'
+  });
+  gfs = gridfsBucket;
+});
+
+// Helper function to get GridFS bucket
+const getGridFS = () => {
+  if (!gridfsBucket) {
+    throw new Error('GridFSBucket not initialized');
+  }
+  return gridfsBucket;
+};
 
 // Apply auth middleware to all admin routes
 router.use(authMiddleware);
@@ -182,6 +205,89 @@ router.post('/candidates/:id/notes', permissionMiddleware('write_forms'), async 
     res.status(500).json({
       success: false,
       message: 'Error adding note'
+    });
+  }
+});
+
+// Delete candidate (Admin only)
+router.delete('/candidates/:id', roleMiddleware('admin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Check if GridFS is initialized
+    if (!gridfsBucket) {
+      return res.status(500).json({
+        success: false,
+        message: 'GridFSBucket not initialized. Please try again.'
+      });
+    }
+
+    // Find candidate
+    const candidate = await Candidate.findById(id);
+    
+    if (!candidate) {
+      return res.status(404).json({
+        success: false,
+        message: 'Candidate not found'
+      });
+    }
+
+    // Delete associated files from GridFS
+    const fileFields = ['passportPhoto', 'stanzaTestimony', 'signature', 'sponsorsSignature', 'otherDocuments'];
+    const deletionErrors = [];
+
+    for (const field of fileFields) {
+      try {
+        if (field === 'otherDocuments') {
+          if (candidate[field] && Array.isArray(candidate[field]) && candidate[field].length > 0) {
+            for (const fileId of candidate[field]) {
+              try {
+                if (mongoose.Types.ObjectId.isValid(fileId)) {
+                  await gridfsBucket.delete(new mongoose.Types.ObjectId(fileId));
+                  console.log(`Deleted file: ${fileId}`);
+                }
+              } catch (err) {
+                deletionErrors.push(`Error deleting file ${fileId}: ${err.message}`);
+                console.error(`Error deleting file ${fileId}:`, err);
+              }
+            }
+          }
+        } else {
+          if (candidate[field]) {
+            try {
+              if (mongoose.Types.ObjectId.isValid(candidate[field])) {
+                await gridfsBucket.delete(new mongoose.Types.ObjectId(candidate[field]));
+                console.log(`Deleted file: ${candidate[field]}`);
+              }
+            } catch (err) {
+              deletionErrors.push(`Error deleting file ${candidate[field]}: ${err.message}`);
+              console.error(`Error deleting file ${candidate[field]}:`, err);
+            }
+          }
+        }
+      } catch (err) {
+        deletionErrors.push(`Error processing field ${field}: ${err.message}`);
+        console.error(`Error processing field ${field}:`, err);
+      }
+    }
+
+    // Delete candidate from database
+    await Candidate.findByIdAndDelete(id);
+
+    // Log the deletion
+    console.log(`Candidate ${candidate.formNumber} (${candidate.fullName}) deleted by admin ${req.user.email}`);
+
+    res.json({
+      success: true,
+      message: 'Candidate and associated files deleted successfully',
+      errors: deletionErrors.length > 0 ? deletionErrors : undefined
+    });
+
+  } catch (error) {
+    console.error('Error deleting candidate:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error deleting candidate: ' + error.message
     });
   }
 });

@@ -44,7 +44,9 @@ let gfs;
 
 connection.once('open', () => {
   console.log('MongoDB database connection established successfully');
-  
+  app.listen(PORT, () => {
+    console.log(`Server is running on port: ${PORT}`);
+  });
   // Initialize GridFS
   const { GridFSBucket } = require('mongodb');
   gfs = new GridFSBucket(connection.db, {
@@ -69,6 +71,3 @@ app.get('/', (req, res) => {
   res.json({ message: 'IGSAA Backend API is running' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server is running on port: ${PORT}`);
-});
